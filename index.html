@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>パンダたたきゲーム</title>
+<style>
+*{
+  box-sizing:border-box;
+  -webkit-tap-highlight-color:transparent;
+}
+html,body{
+  margin:0;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  touch-action:none;
+  font-family:sans-serif;
+  background:#f4f7fb;
+}
+.screen{
+  width:100%;
+  height:100%;
+  display:none;
+  padding:16px;
+}
+.active{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+}
+h1{
+  margin:10px 0;
+  color:#333;
+  text-align:center;
+}
+p{
+  text-align:center;
+  line-height:1.6;
+  color:#444;
+}
+button{
+  min-width:180px;
+  min-height:60px;
+  border:none;
+  border-radius:16px;
+  font-size:22px;
+  font-weight:bold;
+  color:#fff;
+  background:#2196f3;
+  margin-top:20px;
+  cursor:pointer;
+}
+button:active{
+  transform:scale(0.96);
+}
+#gameScreen{
+  padding:10px;
+}
+.topbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size:22px;
+  font-weight:bold;
+  padding:8px;
+  color:#333;
+}
+#gameArea{
+  flex:1;
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:10px;
+  width:100%;
+  max-width:500px;
+  margin:auto;
+}
+.hole{
+  background:#9ccc65;
+  border-radius:20px;
+  position:relative;
+  aspect-ratio:1/1;
+  overflow:hidden;
+  border:4px solid #7cb342;
+}
+.panda{
+  position:absolute;
+  left:50%;
+  bottom:-100%;
+  transform:translateX(-50%);
+  font-size:clamp(40px,10vw,70px);
+  transition:bottom .18s;
+  user-select:none;
+  cursor:pointer;
+}
+.panda.show{
+  bottom:10%;
+}
+.rank{
+  font-size:32px;
+  font-weight:bold;
+  color:#ff9800;
+  margin:10px 0;
+}
+.scoreBig{
+  font-size:28px;
+  margin:10px 0;
+}
+
+#comboDisplay{
+  position:fixed;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  font-size:48px;
+  font-weight:bold;
+  color:#ff4081;
+  text-shadow:0 0 15px #fff;
+  opacity:0;
+  pointer-events:none;
+  z-index:100;
+}
+
+.comboShow{
+  animation:comboPop 0.8s ease-out;
+}
+
+@keyframes comboPop{
+  0%{
+    opacity:0;
+    transform:translate(-50%,-50%) scale(0.5);
+  }
+  20%{
+    opacity:1;
+    transform:translate(-50%,-50%) scale(1.3);
+  }
+  100%{
+    opacity:0;
+    transform:translate(-50%,-120%) scale(1);
+  }
+}
+
+#flashEffect{
+  position:fixed;
+  inset:0;
+  background:rgba(255,215,0,0.45);
+  opacity:0;
+  pointer-events:none;
+}
+
+.flash{
+  animation:flashAnim .4s;
+}
+
+@keyframes flashAnim{
+  0%{opacity:0;}
+  50%{opacity:1;}
+  100%{opacity:0;}
+}
+</style>
+</head>
+<body>
+
+<div id="flashEffect"></div>
+<div id="comboDisplay"></div>
+
+<div id="startScreen" class="screen active">
+  <h1>🐼 パンダたたき</h1>
+  <p>
+    パンダが穴から出てきたらタップ！<br>
+    30秒でできるだけたくさんたたこう！<br>
+    5連続成功ごとに特別演出が発生！
+  </p>
+  <button id="startBtn">スタート</button>
+</div>
+
+<div id="gameScreen" class="screen">
+  <div class="topbar">
+    <div>🏆 <span id="score">0</span></div>
+    <div>⏰ <span id="time">30</span></div>
+  </div>
+
+  <div id="gameArea"></div>
+</div>
+
+<div id="resultScreen" class="screen">
+  <h1>結果発表</h1>
+  <div class="scoreBig">スコア：<span id="finalScore">0</span></div>
+  <div class="rank" id="rank">C</div>
+  <button id="restartBtn">もう一度遊ぶ</button>
+</div>
+
+<script>
+const startScreen=document.getElementById("startScreen");
+const gameScreen=document.getElementById("gameScreen");
+const resultScreen=document.getElementById("resultScreen");
+
+const scoreEl=document.getElementById("score");
+const timeEl=document.getElementById("time");
+const finalScoreEl=document.getElementById("finalScore");
+const rankEl=document.getElementById("rank");
+const gameArea=document.getElementById("gameArea");
+
+const comboDisplay=document.getElementById("comboDisplay");
+const flashEffect=document.getElementById("flashEffect");
+
+const holes=[];
+
+let score=0;
+let timeLeft=30;
+let combo=0;
+let gameTimer=null;
+let pandaTimer=null;
+let currentPanda=null;
+let playing=false;
+
+for(let i=0;i<9;i++){
+  const hole=document.createElement("div");
+  hole.className="hole";
+
+  const panda=document.createElement("div");
+  panda.className="panda";
+  panda.textContent="🐼";
+
+  panda.addEventListener("pointerdown",(e)=>{
+    e.preventDefault();
+
+    if(!playing) return;
+    if(panda!==currentPanda) return;
+
+    score++;
+    combo++;
+
+    scoreEl.textContent=score;
+
+    panda.classList.remove("show");
+    currentPanda=null;
+
+    if(combo>0 && combo%5===0){
+      specialComboEffect(combo);
+    }
+  });
+
+  hole.appendChild(panda);
+  gameArea.appendChild(hole);
+  holes.push(panda);
+}
+
+function specialComboEffect(comboCount){
+
+  comboDisplay.textContent=
+    "🔥 " + comboCount + " COMBO! 🔥";
+
+  comboDisplay.classList.remove("comboShow");
+  void comboDisplay.offsetWidth;
+  comboDisplay.classList.add("comboShow");
+
+  flashEffect.classList.remove("flash");
+  void flashEffect.offsetWidth;
+  flashEffect.classList.add("flash");
+}
+
+function showScreen(screen){
+  startScreen.classList.remove("active");
+  gameScreen.classList.remove("active");
+  resultScreen.classList.remove("active");
+
+  screen.classList.add("active");
+}
+
+function randomPanda(){
+
+  if(!playing) return;
+
+  if(currentPanda){
+    currentPanda.classList.remove("show");
+    combo=0;
+  }
+
+  const panda=
+    holes[Math.floor(Math.random()*holes.length)];
+
+  currentPanda=panda;
+  panda.classList.add("show");
+
+  const visibleTime=
+    700 + Math.random()*500;
+
+  setTimeout(()=>{
+
+    if(currentPanda===panda){
+      panda.classList.remove("show");
+      currentPanda=null;
+      combo=0;
+    }
+
+  },visibleTime);
+
+  pandaTimer=setTimeout(
+    randomPanda,
+    500 + Math.random()*700
+  );
+}
+
+function startGame(){
+
+  score=0;
+  combo=0;
+  timeLeft=30;
+  playing=true;
+
+  scoreEl.textContent=score;
+  timeEl.textContent=timeLeft;
+
+  showScreen(gameScreen);
+
+  randomPanda();
+
+  gameTimer=setInterval(()=>{
+
+    timeLeft--;
+    timeEl.textContent=timeLeft;
+
+    if(timeLeft<=0){
+      endGame();
+    }
+
+  },1000);
+}
+
+function endGame(){
+
+  playing=false;
+
+  clearInterval(gameTimer);
+  clearTimeout(pandaTimer);
+
+  if(currentPanda){
+    currentPanda.classList.remove("show");
+  }
+
+  finalScoreEl.textContent=score;
+
+  let rank="C";
+
+  if(score>=40){
+    rank="S";
+  }else if(score>=30){
+    rank="A";
+  }else if(score>=20){
+    rank="B";
+  }
+
+  rankEl.textContent="ランク " + rank;
+
+  showScreen(resultScreen);
+}
+
+document.getElementById("startBtn")
+.addEventListener("click",startGame);
+
+document.getElementById("restartBtn")
+.addEventListener("click",startGame);
+
+document.addEventListener(
+  "gesturestart",
+  e=>e.preventDefault()
+);
+
+document.addEventListener(
+  "dblclick",
+  e=>e.preventDefault()
+);
+</script>
+
+</body>
+</html>
